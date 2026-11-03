@@ -1,0 +1,9 @@
+.rmt-cta { border-top: 4px solid #111; padding: 1.25rem; margin: 2rem 0; background: #f7f7f5; font-family: inherit; }
+.rmt-cta h2 { margin: 0 0 .5rem; font-size: 1.4rem; }
+.rmt-frequency { border: 0; padding: 0; margin: 1rem 0; display: flex; gap: 1rem; }
+.rmt-amounts { display: flex; flex-wrap: wrap; gap: .5rem; }
+.rmt-amounts button { min-width: 5rem; padding: .7rem 1rem; font-size: 1rem; border: 2px solid #111; background: #fff; cursor: pointer; }
+.rmt-amounts button:hover, .rmt-amounts button:focus-visible { background: #111; color: #fff; }
+.rmt-amounts button:disabled { opacity: .5; cursor: wait; }
+.rmt-error { color: #b00020; }
+.rmt-dismiss { margin-top: .75rem; background: none; border: 0; text-decoration: underline; cursor: pointer; }

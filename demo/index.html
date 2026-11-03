@@ -1,0 +1,75 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Reader Membership Toolkit Demo</title>
+<link rel="stylesheet" href="../assets/css/rmt.css">
+<style>
+  body { font-family: Georgia, serif; max-width: 680px; margin: 2rem auto; padding: 0 16px; line-height: 1.6; color: #111; background: #fff; }
+  .panel { font-family: system-ui, sans-serif; font-size: .9rem; background: #eef; padding: 1rem; margin: 1rem 0; }
+  .panel button { margin: .25rem .25rem 0 0; }
+  pre { background: #111; color: #9f9; padding: 1rem; overflow-x: auto; font-size: .8rem; min-height: 4rem; }
+</style>
+</head>
+<body>
+<h1>Demo story</h1>
+<p>This page runs the plugin's front end without WordPress. Checkout is mocked, so no payment happens.</p>
+
+<div class="panel">
+  <strong>Try it:</strong> click "Read another story" until you pass the free limit (3).<br>
+  <button id="read">Read another story</button>
+  <button id="consent">Grant analytics consent</button>
+  <button id="reset">Reset</button>
+  <div id="status"></div>
+</div>
+
+<aside class="rmt-cta" data-rmt-cta hidden aria-labelledby="rmt-heading">
+  <h2 id="rmt-heading" data-rmt-headline></h2>
+  <p>Our reporting is free for everyone because readers like you support it.</p>
+  <fieldset class="rmt-frequency">
+    <label><input type="radio" name="rmt_freq" value="monthly" checked> Monthly</label>
+    <label><input type="radio" name="rmt_freq" value="once"> One time</label>
+  </fieldset>
+  <div class="rmt-amounts">
+    <button type="button" data-rmt-amount="10">$10</button>
+    <button type="button" data-rmt-amount="25">$25</button>
+    <button type="button" data-rmt-amount="50">$50</button>
+  </div>
+  <p class="rmt-error" data-rmt-error role="alert" hidden></p>
+  <button type="button" class="rmt-dismiss" data-rmt-dismiss>Maybe later</button>
+</aside>
+
+<h3>dataLayer events</h3>
+<pre id="log">(no events yet, consent is denied by default)</pre>
+
+<script src="../assets/js/rmt-core.js"></script>
+<script>
+  function safeGet(k, f) { try { const v = localStorage.getItem(k); return v ? JSON.parse(v) : f; } catch (e) { return f; } }
+  function safeSet(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) {} }
+  const story = Number(new URLSearchParams(location.search).get('story') || 1);
+  window.RMT_CONFIG = {
+    checkoutUrl: 'mock', freeArticles: 3, articleId: story, experiment: 'cta_headline_v1',
+    headlines: { control: 'Journalism that holds power to account', impact: 'Your gift helps us change laws and expose wrongdoing' }
+  };
+  // Mock checkout: pretend Stripe returned a session url that sends the reader back with rmt_thanks=1.
+  const realFetch = window.fetch;
+  window.fetch = async (url, opts) => url === 'mock'
+    ? new Response(JSON.stringify({ url: location.pathname + '?story=' + story + '&rmt_thanks=1' }), { status: 200 })
+    : realFetch(url, opts);
+  window.dataLayer = [];
+  const push = window.dataLayer.push.bind(window.dataLayer);
+  window.dataLayer.push = (e) => { document.getElementById('log').textContent = JSON.stringify(window.dataLayer.concat([e]), null, 2); return push(e); };
+  document.getElementById('read').onclick = () => { location.search = '?story=' + (story + 1); };
+  document.getElementById('consent').onclick = () => { safeSet('rmt_consent', 'granted'); location.reload(); };
+  document.getElementById('reset').onclick = () => { try { localStorage.clear(); sessionStorage.clear(); } catch (e) {} location.search = ''; };
+</script>
+<script src="../assets/js/rmt.js"></script>
+<script>
+  const meter = safeGet('rmt_meter', { ids: [] });
+  document.getElementById('status').textContent =
+    'Story #' + story + ' | stories read this month: ' + (meter.ids ? meter.ids.length : 0) +
+    ' | consent: ' + safeGet('rmt_consent', 'denied') + ' | member: ' + safeGet('rmt_member', false);
+</script>
+</body>
+</html>

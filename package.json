@@ -1,0 +1,11 @@
+{
+  "name": "reader-membership-toolkit",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Front end tests for the Reader Membership Toolkit WordPress plugin",
+  "scripts": {
+    "test": "node --test tests/js/*.test.js",
+    "test:php": "php tests/php/run.php"
+  },
+  "license": "MIT"
+}
