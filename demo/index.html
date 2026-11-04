@@ -4,7 +4,18 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Reader Membership Toolkit Demo</title>
-<link rel="stylesheet" href="../assets/css/rmt.css">
+<style>
+/* Same styles as assets/css/rmt.css, inlined so the demo works from any URL */
+.rmt-cta { border-top: 4px solid #111; padding: 1.25rem; margin: 2rem 0; background: #f7f7f5; font-family: inherit; }
+.rmt-cta h2 { margin: 0 0 .5rem; font-size: 1.4rem; }
+.rmt-frequency { border: 0; padding: 0; margin: 1rem 0; display: flex; gap: 1rem; }
+.rmt-amounts { display: flex; flex-wrap: wrap; gap: .5rem; }
+.rmt-amounts button { min-width: 5rem; padding: .7rem 1rem; font-size: 1rem; border: 2px solid #111; background: #fff; cursor: pointer; }
+.rmt-amounts button:hover, .rmt-amounts button:focus-visible { background: #111; color: #fff; }
+.rmt-amounts button:disabled { opacity: .5; cursor: wait; }
+.rmt-error { color: #b00020; }
+.rmt-dismiss { margin-top: .75rem; background: none; border: 0; text-decoration: underline; cursor: pointer; }
+</style>
 <style>
   body { font-family: Georgia, serif; max-width: 680px; margin: 2rem auto; padding: 0 16px; line-height: 1.6; color: #111; background: #fff; }
   .panel { font-family: system-ui, sans-serif; font-size: .9rem; background: #eef; padding: 1rem; margin: 1rem 0; }
@@ -17,7 +28,8 @@
 <p>This page runs the plugin's front end without WordPress. Checkout is mocked, so no payment happens.</p>
 
 <div class="panel">
-  <strong>Try it:</strong> click "Read another story" until you pass the free limit (3).<br>
+  <strong>Try it:</strong> readers get 3 free stories, then see a donation ask. Click <em>Show the donation ask</em> to skip ahead, or read stories one at a time.<br>
+  <button id="jump"><strong>Show the donation ask</strong></button>
   <button id="read">Read another story</button>
   <button id="consent">Grant analytics consent</button>
   <button id="reset">Reset</button>
@@ -43,8 +55,70 @@
 <h3>dataLayer events</h3>
 <pre id="log">(no events yet, consent is denied by default)</pre>
 
-<script src="../assets/js/rmt-core.js"></script>
 <script>
+/* Same code as assets/js/rmt-core.js, inlined so the demo works from any URL */
+/*
+ * Pure logic for the Reader Membership Toolkit, kept free of the DOM so it can be unit tested in Node.
+ */
+(function (root, factory) {
+  if (typeof module === 'object' && module.exports) module.exports = factory();
+  else root.RMTCore = factory();
+})(typeof self !== 'undefined' ? self : this, function () {
+  // FNV-1a 32 bit hash. Small, fast, and stable across browsers.
+  function hash(str) {
+    let h = 0x811c9dc5;
+    for (let i = 0; i < str.length; i++) {
+      h ^= str.charCodeAt(i);
+      h = Math.imul(h, 0x01000193) >>> 0;
+    }
+    return h >>> 0;
+  }
+
+  // Same visitor and experiment always get the same variant.
+  function assignVariant(experiment, visitorId, variants) {
+    if (!experiment || !visitorId || !variants || variants.length === 0) return 'control';
+    return variants[hash(experiment + ':' + visitorId) % variants.length];
+  }
+
+  // Counts unique articles read in the current calendar month.
+  function recordRead(meter, articleId, now) {
+    const month = now.toISOString().slice(0, 7);
+    const state = meter && meter.month === month ? { month, ids: meter.ids.slice() } : { month, ids: [] };
+    const id = String(articleId);
+    if (id && !state.ids.includes(id)) state.ids.push(id);
+    return state;
+  }
+
+  function shouldShowAsk(meter, freeArticles, opts) {
+    if (opts && (opts.isMember || opts.dismissedThisSession)) return false;
+    return meter.ids.length > freeArticles;
+  }
+
+  // Events go to the dataLayer only when the reader has granted analytics consent.
+  // Personal data such as emails or names is never allowed in event params.
+  const ALLOWED_PARAMS = ['variant', 'experiment', 'amount', 'frequency', 'article_count', 'article_id'];
+  function buildEvent(name, params, consent) {
+    if (consent !== 'granted') return null;
+    const clean = {};
+    for (const key of ALLOWED_PARAMS) {
+      if (params && params[key] !== undefined && params[key] !== null) clean[key] = params[key];
+    }
+    return Object.assign({ event: name }, clean);
+  }
+
+  function validAmount(value) {
+    const n = Number(value);
+    return Number.isInteger(n) && n >= 1 && n <= 10000;
+  }
+
+  return { hash, assignVariant, recordRead, shouldShowAsk, buildEvent, validAmount };
+});
+</script>
+<script>
+  window.addEventListener('error', function (e) {
+    var el = document.getElementById('status');
+    if (el) el.textContent = 'Demo error: ' + (e.message || 'a script failed to load') + '. Try Ctrl + Shift + R.';
+  }, true);
   function safeGet(k, f) { try { const v = localStorage.getItem(k); return v ? JSON.parse(v) : f; } catch (e) { return f; } }
   function safeSet(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) {} }
   const story = Number(new URLSearchParams(location.search).get('story') || 1);
@@ -60,16 +134,116 @@
   window.dataLayer = [];
   const push = window.dataLayer.push.bind(window.dataLayer);
   window.dataLayer.push = (e) => { document.getElementById('log').textContent = JSON.stringify(window.dataLayer.concat([e]), null, 2); return push(e); };
+  document.getElementById('jump').onclick = () => {
+    const month = new Date().toISOString().slice(0, 7);
+    safeSet('rmt_meter', { month, ids: ['1', '2', '3'] });
+    safeSet('rmt_consent', 'granted');
+    try { sessionStorage.removeItem('rmt_dismissed'); } catch (e) {}
+    try { localStorage.removeItem('rmt_member'); } catch (e) {}
+    location.search = '?story=4';
+  };
   document.getElementById('read').onclick = () => { location.search = '?story=' + (story + 1); };
   document.getElementById('consent').onclick = () => { safeSet('rmt_consent', 'granted'); location.reload(); };
   document.getElementById('reset').onclick = () => { try { localStorage.clear(); sessionStorage.clear(); } catch (e) {} location.search = ''; };
 </script>
-<script src="../assets/js/rmt.js"></script>
 <script>
+/* Same code as assets/js/rmt.js, inlined so the demo works from any URL */
+/* Front end wiring: meter, A/B headline, consent aware tracking, and Stripe Checkout redirect. */
+(function () {
+  const cfg = window.RMT_CONFIG;
+  const core = window.RMTCore;
+  if (!cfg || !core) return;
+
+  const store = {
+    get(key, fallback) {
+      try { const v = localStorage.getItem(key); return v ? JSON.parse(v) : fallback; } catch (e) { return fallback; }
+    },
+    set(key, value) {
+      try { localStorage.setItem(key, JSON.stringify(value)); } catch (e) { /* storage blocked, meter simply resets */ }
+    },
+  };
+
+  // Consent is read from a first party value set by the site's consent banner.
+  function consent() {
+    return store.get('rmt_consent', 'denied');
+  }
+
+  function track(name, params) {
+    const evt = core.buildEvent(name, params, consent());
+    if (!evt) return;
+    window.dataLayer = window.dataLayer || [];
+    window.dataLayer.push(evt);
+  }
+
+  let visitorId = store.get('rmt_vid', null);
+  if (!visitorId) {
+    visitorId = (crypto.randomUUID && crypto.randomUUID()) || String(Math.random()).slice(2);
+    store.set('rmt_vid', visitorId);
+  }
+
+  const variant = cfg.experiment ? core.assignVariant(cfg.experiment, visitorId, Object.keys(cfg.headlines)) : 'control';
+  const base = { experiment: cfg.experiment || undefined, variant };
+
+  const meter = core.recordRead(store.get('rmt_meter', null), cfg.articleId, new Date());
+  store.set('rmt_meter', meter);
+
+  if (new URLSearchParams(location.search).get('rmt_thanks') === '1') {
+    store.set('rmt_member', true);
+    track('rmt_donation_complete', base);
+  }
+
+  const el = document.querySelector('[data-rmt-cta]');
+  if (!el) return;
+
+  const dismissed = sessionStorage.getItem('rmt_dismissed') === '1';
+  if (!core.shouldShowAsk(meter, cfg.freeArticles, { isMember: store.get('rmt_member', false), dismissedThisSession: dismissed })) return;
+
+  el.querySelector('[data-rmt-headline]').textContent = cfg.headlines[variant] || cfg.headlines.control;
+  el.hidden = false;
+  track('rmt_cta_view', Object.assign({ article_count: meter.ids.length, article_id: cfg.articleId }, base));
+
+  const errorEl = el.querySelector('[data-rmt-error]');
+  el.querySelectorAll('[data-rmt-amount]').forEach(function (btn) {
+    btn.addEventListener('click', async function () {
+      const amount = Number(btn.dataset.rmtAmount);
+      const frequency = el.querySelector('input[name="rmt_freq"]:checked').value;
+      if (!core.validAmount(amount)) return;
+      track('rmt_checkout_start', Object.assign({ amount, frequency }, base));
+      btn.disabled = true;
+      errorEl.hidden = true;
+      try {
+        const res = await fetch(cfg.checkoutUrl, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ amount, frequency, variant }),
+        });
+        const data = await res.json();
+        if (!res.ok || !data.url) throw new Error(data.message || 'Checkout failed');
+        location.assign(data.url);
+      } catch (err) {
+        errorEl.textContent = err.message;
+        errorEl.hidden = false;
+        btn.disabled = false;
+      }
+    });
+  });
+
+  el.querySelector('[data-rmt-dismiss]').addEventListener('click', function () {
+    sessionStorage.setItem('rmt_dismissed', '1');
+    el.hidden = true;
+    track('rmt_cta_dismiss', base);
+  });
+})();
+</script>
+<script>
+  if (!window.RMTCore) {
+    document.getElementById('status').textContent = 'Demo error: the plugin scripts did not load. Try Ctrl + Shift + R.';
+  } else {
   const meter = safeGet('rmt_meter', { ids: [] });
   document.getElementById('status').textContent =
     'Story #' + story + ' | stories read this month: ' + (meter.ids ? meter.ids.length : 0) +
     ' | consent: ' + safeGet('rmt_consent', 'denied') + ' | member: ' + safeGet('rmt_member', false);
+  }
 </script>
 </body>
 </html>
